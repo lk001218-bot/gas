@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>기체 분자 운동과 피스톤 시뮬레이션</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;min-height:100%}
+body{font-family:Arial,"맑은 고딕",sans-serif;background:#eef3fb;color:#1f2937}
+.container{max-width:1150px;margin:0 auto;padding:16px}
+h1{text-align:center;margin:8px 0 14px}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tab-btn{flex:1;padding:12px;border:0;border-radius:10px;background:#dbe4f0;font-size:17px;font-weight:bold;cursor:pointer}
+.tab-btn.active{background:#2563eb;color:white}
+.panel{background:white;border-radius:14px;padding:14px;box-shadow:0 4px 16px rgba(0,0,0,.1)}
+.controls{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}
+.control{background:#f8fafc;border:1px solid #dbe4f0;border-radius:10px;padding:10px}
+label{display:block;font-size:14px;font-weight:bold;margin-bottom:6px}
+input[type=number]{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px}
+.buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+button{min-height:42px;border:0;border-radius:10px;background:#2563eb;color:white;font-size:15px;font-weight:bold;cursor:pointer}
+button.gray{background:#64748b}
+.canvas-wrap{position:relative;width:100%;aspect-ratio:1000/520;border:2px solid #334155;border-radius:12px;overflow:hidden;background:#0f172a}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.overlay{position:absolute;top:10px;left:10px;right:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px;pointer-events:none}
+.info-box{background:rgba(15,23,42,.8);border:1px solid rgba(255,255,255,.25);border-radius:10px;color:white;padding:9px;text-align:center;font-weight:bold;line-height:1.5}
+.legend{margin-top:10px;background:#f8fafc;border:1px solid #dbe4f0;border-radius:10px;padding:10px}
+.colorbar{height:16px;border-radius:99px;background:linear-gradient(90deg,#2563eb,#60a5fa,#fef08a,#fb923c,#dc2626)}
+.legend-labels{display:flex;justify-content:space-between;font-size:13px;color:#475569;margin-top:4px}
+.explain{margin-top:10px;line-height:1.6;color:#334155}
+.hidden{display:none}
+
+:fullscreen .container{
+  max-width:none;
+  width:100vw;
+  height:100vh;
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+:fullscreen h1{
+  margin:0 0 6px;
+  font-size:20px;
+  flex-shrink:0;
+}
+:fullscreen .tabs{
+  margin-bottom:6px;
+  flex-shrink:0;
+}
+:fullscreen .panel{
+  flex:1;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+:fullscreen .controls{
+  margin-bottom:6px;
+  flex-shrink:0;
+}
+:fullscreen .canvas-wrap{
+  width:min(100%, calc((100vh - 300px) * 1000 / 520));
+  max-width:100%;
+  aspect-ratio:1000 / 520;
+  height:auto;
+  margin:0 auto;
+  flex-shrink:1;
+}
+:fullscreen canvas{
+  width:100%;
+  height:100%;
+  display:block;
+}
+:fullscreen .legend{
+  margin-top:6px;
+  padding:7px;
+  flex-shrink:0;
+}
+:fullscreen .explain{
+  margin-top:5px;
+  font-size:13px;
+  line-height:1.4;
+  flex-shrink:0;
+}
+:fullscreen #fullscreenBtn{
+  flex-shrink:0;
+}
+
+@media(max-width:900px){
+  .controls{grid-template-columns:1fr 1fr}
+  .buttons{grid-template-columns:1fr}
+}
+@media(max-width:520px){
+  .controls,.overlay{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="container" id="app">
+<h1>기체 분자 운동 시뮬레이션</h1>
+
+<div class="tabs">
+<button class="tab-btn active" id="isoTab">등온 버전</button>
+<button class="tab-btn" id="adiTab">단열 버전</button>
+</div>
+
+<div class="panel">
+<div id="isoControls" class="controls">
+<div class="control"><label>왼쪽 온도(K)</label><input type="number" id="isoLeftTemp" min="100" max="700" value="100"></div>
+<div class="control"><label>오른쪽 온도(K)</label><input type="number" id="isoRightTemp" min="100" max="700" value="100"></div>
+<div class="control"><label>왼쪽 입자 수</label><input type="number" id="isoLeftCount" min="1" max="80" value="5"></div>
+<div class="control"><label>오른쪽 입자 수</label><input type="number" id="isoRightCount" min="1" max="80" value="5"></div>
+<div class="control buttons"><button id="isoStart">시작/정지</button><button class="gray" id="isoRandomize">입자 위치 초기화</button><button class="gray" id="isoReset">전체 초기화</button></div>
+</div>
+
+<div id="adiControls" class="controls hidden">
+<div class="control"><label>왼쪽 온도(K)</label><input type="number" id="adiLeftTemp" min="100" max="700" value="100"></div>
+<div class="control"><label>오른쪽 온도(K)</label><input type="number" id="adiRightTemp" min="100" max="700" value="100"></div>
+<div class="control"><label>왼쪽 입자 수</label><input type="number" id="adiLeftCount" min="1" max="80" value="5"></div>
+<div class="control"><label>오른쪽 입자 수</label><input type="number" id="adiRightCount" min="1" max="80" value="5"></div>
+<div class="control buttons"><button id="adiStart">시작/정지</button><button class="gray" id="adiRandomize">입자 위치 초기화</button><button class="gray" id="adiReset">전체 초기화</button></div>
+</div>
+
+<div class="canvas-wrap">
+<canvas id="simCanvas" width="1000" height="520"></canvas>
+<div class="overlay">
+<div class="info-box" id="leftInfo">왼쪽</div>
+<div class="info-box" id="rightInfo">오른쪽</div>
+</div>
+</div>
+
+<div class="legend">
+<div style="font-size:13px;line-height:1.6;margin-bottom:8px"><b>압력·부피 표시 안내:</b> V₀는 피스톤이 중앙에 있을 때 한쪽 기체의 부피이며, P₀는 입자 5개·100 K·부피 1.00 V₀일 때의 압력입니다. 압력은 이상기체 상태 방정식에 따른 상대값으로 실제 측정 압력이 아닙니다.</div>
+<div class="colorbar"></div>
+<div class="legend-labels"><span>차가운 입자 · 느림</span><span>뜨거운 입자 · 빠름</span></div>
+</div>
+
+<div class="explain" id="modeExplain">
+<b>등온 버전:</b> 입자 위치 초기화와 전체 초기화 시 피스톤을 거울면처럼 기준으로 하여 왼쪽·오른쪽 입자가 서로 대칭 분포합니다.
+</div>
+
+<div style="margin-top:10px;text-align:center">
+
+<label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px;font-weight:bold">
+<input type="checkbox" id="toggleInfoBoxes" checked>
+온도·입자 수·압력·부피 정보 표시
+</label>
+<button id="fullscreenBtn" class="gray" style="width:220px">전체화면</button>
+
+</div>
+</div>
+</div>
+
+<script>
+const canvas=document.getElementById("simCanvas");
+const ctx=canvas.getContext("2d");
+
+const W=canvas.width;
+const H=canvas.height;
+const R=30;
+const SPEED_MULTIPLIER=5;
+const PISTON_IMPULSE=0.055;
+const PISTON_FRICTION=0.985;
+const TEMP_MIN=100;
+const TEMP_MAX=700;
+const PISTON_W=22;
+const MIN_LEFT_WIDTH=120;
+const MIN_RIGHT_WIDTH=120;
+// 교육용 상대 단위: 초기 한쪽 부피를 1.00 V₀로,
+// 입자 5개·100 K·1.00 V₀의 압력을 1.00 P₀로 정의합니다.
+const REFERENCE_VOLUME=(W-PISTON_W)/2;
+const REFERENCE_PARTICLES=5;
+const REFERENCE_TEMP=100;
+
+let mode="iso";
+let running=true;
+let particles=[];
+let pistonX=W/2;
+let pistonV=0;
+let draggingPiston=false;
+let lastDragX=null;
+let leftTempState=100;
+let rightTempState=100;
+
+const ui={
+app:document.getElementById("app"),
+isoTab:document.getElementById("isoTab"),
+adiTab:document.getElementById("adiTab"),
+isoControls:document.getElementById("isoControls"),
+adiControls:document.getElementById("adiControls"),
+isoLeftTemp:document.getElementById("isoLeftTemp"),
+isoRightTemp:document.getElementById("isoRightTemp"),
+isoLeftCount:document.getElementById("isoLeftCount"),
+isoRightCount:document.getElementById("isoRightCount"),
+adiLeftTemp:document.getElementById("adiLeftTemp"),
+adiRightTemp:document.getElementById("adiRightTemp"),
+adiLeftCount:document.getElementById("adiLeftCount"),
+adiRightCount:document.getElementById("adiRightCount"),
+leftInfo:document.getElementById("leftInfo"),
+rightInfo:document.getElementById("rightInfo"),
+modeExplain:document.getElementById("modeExplain"),
+isoStart:document.getElementById("isoStart"),
+isoReset:document.getElementById("isoReset"),
+isoRandomize:document.getElementById("isoRandomize"),
+adiStart:document.getElementById("adiStart"),
+adiReset:document.getElementById("adiReset"),
+adiRandomize:document.getElementById("adiRandomize"),
+fullscreenBtn:document.getElementById("fullscreenBtn")
+};
+
+const infoToggle = document.getElementById("toggleInfoBoxes");
+
+function updateInfoBoxVisibility(){
+const overlay = document.querySelector(".overlay");
+if(!overlay || !infoToggle)return;
+overlay.style.display = infoToggle.checked ? "grid" : "none";
+}
+
+if(infoToggle){
+infoToggle.addEventListener("change", updateInfoBoxVisibility);
+}
+
+function clamp(value,min,max){
+const n=Number(value);
+if(!Number.isFinite(n))return min;
+return Math.max(min,Math.min(max,n));
+}
+
+function tempToSpeed(temp){
+return Math.sqrt(temp/300)*1.7*SPEED_MULTIPLIER;
+}
+
+function tempToColor(temp){
+const t=Math.max(0,Math.min(1,(temp-TEMP_MIN)/(TEMP_MAX-TEMP_MIN)));
+let r,g,b;
+if(t<0.5){
+const u=t/0.5;
+r=0+(120-0)*u;
+g=100+(180-100)*u;
+b=255;
+}else{
+const u=(t-0.5)/0.5;
+r=120+(255-120)*u;
+g=180+(60-180)*u;
+b=255+(0-255)*u;
+}
+return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+}
+
+function randomVelocity(temp){
+const speed=tempToSpeed(temp);
+const angle=Math.random()*Math.PI*2;
+return{vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed};
+}
+
+function sideBounds(side){
+if(side==="left")return{min:R,max:pistonX-PISTON_W/2-R};
+return{min:pistonX+PISTON_W/2+R,max:W-R};
+}
+
+function makeMirrorPair(leftTemp,rightTemp){
+const leftFace=pistonX-PISTON_W/2;
+const rightFace=pistonX+PISTON_W/2;
+const maxDistance=Math.max(
+R,
+Math.min(leftFace-R, W-R-rightFace)
+);
+const distance=R+Math.random()*Math.max(1,maxDistance-R);
+const y=R+Math.random()*(H-R*2);
+const leftVelocity=randomVelocity(leftTemp);
+const rightVelocity=randomVelocity(rightTemp);
+
+return [
+{
+side:"left",
+x:leftFace-distance,
+y,
+vx:leftVelocity.vx,
+vy:leftVelocity.vy,
+temp:leftTemp
+},
+{
+side:"right",
+x:rightFace+distance,
+y,
+vx:rightVelocity.vx,
+vy:rightVelocity.vy,
+temp:rightTemp
+}
+];
+}
+
+function makeParticle(side,temp){
+const v=randomVelocity(temp);
+const b=sideBounds(side);
+return{
+side,
+x:b.min+Math.random()*Math.max(1,b.max-b.min),
+y:R+Math.random()*(H-R*2),
+vx:v.vx,
+vy:v.vy,
+temp
+};
+}
+
+function getLeftParticles(){return particles.filter(p=>p.side==="left")}
+function getRightParticles(){return particles.filter(p=>p.side==="right")}
+
+function avgTemp(list){
+if(list.length===0)return 0;
+return Math.round(list.reduce((s,p)=>s+p.temp,0)/list.length);
+}
+
+function leftVolume(){return Math.max(1,pistonX-PISTON_W/2)}
+function rightVolume(){return Math.max(1,W-(pistonX+PISTON_W/2))}
+
+function relativeVolume(side){
+ return (side==="left"?leftVolume():rightVolume())/REFERENCE_VOLUME;
+}
+function relativePressure(side,count,temp){
+ const volume=relativeVolume(side);
+ return (count/REFERENCE_PARTICLES)*(temp/REFERENCE_TEMP)/volume;
+}
+
+function rescaleParticleTemp(p,newTemp){
+p.temp=Math.max(TEMP_MIN,Math.min(TEMP_MAX,newTemp));
+const speed=Math.hypot(p.vx,p.vy)||1;
+const target=tempToSpeed(p.temp);
+p.vx*=target/speed;
+p.vy*=target/speed;
+}
+
+function applySideTemperature(side,temp){
+const nextTemp=clamp(temp,TEMP_MIN,TEMP_MAX);
+for(const p of particles){
+if(p.side===side)rescaleParticleTemp(p,nextTemp);
+}
+if(side==="left")leftTempState=nextTemp;
+if(side==="right")rightTempState=nextTemp;
+}
+
+function keepParticlesInside(){
+for(const p of particles){
+const b=sideBounds(p.side);
+p.x=Math.max(b.min,Math.min(b.max,p.x));
+p.y=Math.max(R,Math.min(H-R,p.y));
+}
+}
+
+function randomizeParticlePositionsOnly(){
+pistonV=0;
+
+const left=getLeftParticles();
+const right=getRightParticles();
+const pairCount=Math.min(left.length,right.length);
+
+for(let i=0;i<pairCount;i++){
+const pair=makeMirrorPair(left[i].temp,right[i].temp);
+left[i].x=pair[0].x;
+left[i].y=pair[0].y;
+right[i].x=pair[1].x;
+right[i].y=pair[1].y;
+}
+
+for(let i=pairCount;i<left.length;i++){
+const b=sideBounds("left");
+left[i].x=b.min+Math.random()*Math.max(1,b.max-b.min);
+left[i].y=R+Math.random()*(H-R*2);
+}
+
+for(let i=pairCount;i<right.length;i++){
+const b=sideBounds("right");
+right[i].x=b.min+Math.random()*Math.max(1,b.max-b.min);
+right[i].y=R+Math.random()*(H-R*2);
+}
+
+keepParticlesInside();
+}
+
+function createParticles(leftTemp,rightTemp,leftCount,rightCount){
+particles=[];
+pistonX=W/2;
+pistonV=0;
+leftTempState=leftTemp;
+rightTempState=rightTemp;
+
+const pairCount=Math.min(leftCount,rightCount);
+
+for(let i=0;i<pairCount;i++){
+const pair=makeMirrorPair(leftTemp,rightTemp);
+particles.push(pair[0],pair[1]);
+}
+
+for(let i=pairCount;i<leftCount;i++)particles.push(makeParticle("left",leftTemp));
+for(let i=pairCount;i<rightCount;i++)particles.push(makeParticle("right",rightTemp));
+
+keepParticlesInside();
+}
+
+function adjustParticleCount(side,targetCount,temp){
+const target=Math.round(clamp(targetCount,1,80));
+const nextTemp=clamp(temp,TEMP_MIN,TEMP_MAX);
+let current=particles.filter(p=>p.side===side);
+
+while(current.length<target){
+const p=makeParticle(side,nextTemp);
+particles.push(p);
+current.push(p);
+}
+
+while(current.length>target){
+const removed=current.pop();
+const idx=particles.indexOf(removed);
+if(idx>=0)particles.splice(idx,1);
+}
+
+keepParticlesInside();
+}
+
+function setPistonX(newX,fromDrag=false){
+const oldLeftV=leftVolume();
+const oldRightV=rightVolume();
+
+pistonX=Math.max(MIN_LEFT_WIDTH,Math.min(W-MIN_RIGHT_WIDTH,newX));
+
+const newLeftV=leftVolume();
+const newRightV=rightVolume();
+
+if(mode==="adi"&&(oldLeftV!==newLeftV||oldRightV!==newRightV)){
+applyAdiabaticTemperature(oldLeftV,oldRightV,newLeftV,newRightV);
+}
+
+if(fromDrag)pistonV=0;
+keepParticlesInside();
+}
+
+function applyAdiabaticTemperature(oldLeftV,oldRightV,newLeftV,newRightV){
+const gammaMinusOne=0.4;
+const leftScale=Math.pow(oldLeftV/newLeftV,gammaMinusOne);
+const rightScale=Math.pow(oldRightV/newRightV,gammaMinusOne);
+
+leftTempState=Math.max(TEMP_MIN,Math.min(TEMP_MAX,leftTempState*leftScale));
+rightTempState=Math.max(TEMP_MIN,Math.min(TEMP_MAX,rightTempState*rightScale));
+
+for(const p of particles){
+rescaleParticleTemp(p,p.side==="left"?leftTempState:rightTempState);
+}
+
+ui.adiLeftTemp.value=Math.round(leftTempState);
+ui.adiRightTemp.value=Math.round(rightTempState);
+}
+
+function resetIso(){
+createParticles(
+clamp(ui.isoLeftTemp.value,TEMP_MIN,TEMP_MAX),
+clamp(ui.isoRightTemp.value,TEMP_MIN,TEMP_MAX),
+Math.round(clamp(ui.isoLeftCount.value,1,80)),
+Math.round(clamp(ui.isoRightCount.value,1,80))
+);
+}
+
+function resetAdi(){
+createParticles(
+clamp(ui.adiLeftTemp.value,TEMP_MIN,TEMP_MAX),
+clamp(ui.adiRightTemp.value,TEMP_MIN,TEMP_MAX),
+Math.round(clamp(ui.adiLeftCount.value,1,80)),
+Math.round(clamp(ui.adiRightCount.value,1,80))
+);
+}
+
+function setMode(nextMode){
+if(mode===nextMode)return;
+
+mode=nextMode;
+ui.isoTab.classList.toggle("active",mode==="iso");
+ui.adiTab.classList.toggle("active",mode==="adi");
+ui.isoControls.classList.toggle("hidden",mode!=="iso");
+ui.adiControls.classList.toggle("hidden",mode!=="adi");
+
+if(mode==="iso"){
+ui.modeExplain.innerHTML="<b>등온 버전:</b> 입자 위치 초기화와 전체 초기화 시 피스톤을 거울면처럼 기준으로 하여 왼쪽·오른쪽 입자가 서로 대칭 분포합니다.";
+ui.isoLeftTemp.value=Math.round(leftTempState);
+ui.isoRightTemp.value=Math.round(rightTempState);
+ui.isoLeftCount.value=getLeftParticles().length;
+ui.isoRightCount.value=getRightParticles().length;
+}else{
+ui.modeExplain.innerHTML="<b>단열 버전:</b> 입자 위치 초기화와 전체 초기화 시 피스톤을 거울면처럼 기준으로 하여 왼쪽·오른쪽 입자가 서로 대칭 분포합니다. 피스톤이 움직이면 부피 변화에 따라 온도도 변합니다.";
+ui.adiLeftTemp.value=Math.round(leftTempState);
+ui.adiRightTemp.value=Math.round(rightTempState);
+ui.adiLeftCount.value=getLeftParticles().length;
+ui.adiRightCount.value=getRightParticles().length;
+}
+}
+
+function updatePistonByInertia(){
+if(draggingPiston)return;
+if(Math.abs(pistonV)<0.001){
+pistonV=0;
+return;
+}
+
+const oldLeftV=leftVolume();
+const oldRightV=rightVolume();
+
+pistonX+=pistonV;
+pistonV*=PISTON_FRICTION;
+
+if(pistonX<MIN_LEFT_WIDTH){
+pistonX=MIN_LEFT_WIDTH;
+pistonV=0;
+}
+if(pistonX>W-MIN_RIGHT_WIDTH){
+pistonX=W-MIN_RIGHT_WIDTH;
+pistonV=0;
+}
+
+const newLeftV=leftVolume();
+const newRightV=rightVolume();
+
+if(mode==="adi"&&(oldLeftV!==newLeftV||oldRightV!==newRightV)){
+applyAdiabaticTemperature(oldLeftV,oldRightV,newLeftV,newRightV);
+}
+
+keepParticlesInside();
+}
+
+function moveParticles(){
+for(const p of particles){
+p.x+=p.vx;
+p.y+=p.vy;
+
+if(p.y<R){p.y=R;p.vy=Math.abs(p.vy)}
+if(p.y>H-R){p.y=H-R;p.vy=-Math.abs(p.vy)}
+
+if(p.side==="left"){
+const rightWall=pistonX-PISTON_W/2-R;
+if(p.x<R){
+p.x=R;
+p.vx=Math.abs(p.vx);
+}
+if(p.x>rightWall){
+p.x=rightWall;
+pistonV+=Math.abs(p.vx)*PISTON_IMPULSE;
+p.vx=-Math.abs(p.vx)+pistonV*0.08;
+}
+}else{
+const leftWall=pistonX+PISTON_W/2+R;
+if(p.x>W-R){
+p.x=W-R;
+p.vx=-Math.abs(p.vx);
+}
+if(p.x<leftWall){
+p.x=leftWall;
+pistonV-=Math.abs(p.vx)*PISTON_IMPULSE;
+p.vx=Math.abs(p.vx)+Math.abs(pistonV)*0.08;
+}
+}
+}
+}
+
+function collideParticles(){
+for(let i=0;i<particles.length;i++){
+for(let j=i+1;j<particles.length;j++){
+const a=particles[i],b=particles[j];
+if(a.side!==b.side)continue;
+
+const dx=b.x-a.x;
+const dy=b.y-a.y;
+const dist=Math.hypot(dx,dy);
+const minDist=R*2;
+
+if(dist>0&&dist<minDist){
+const nx=dx/dist;
+const ny=dy/dist;
+const overlap=(minDist-dist)/2;
+
+a.x-=nx*overlap;
+a.y-=ny*overlap;
+b.x+=nx*overlap;
+b.y+=ny*overlap;
+
+const dvx=b.vx-a.vx;
+const dvy=b.vy-a.vy;
+const impact=dvx*nx+dvy*ny;
+
+if(impact<0){
+a.vx+=impact*nx;
+a.vy+=impact*ny;
+b.vx-=impact*nx;
+b.vy-=impact*ny;
+}
+}
+}
+}
+}
+
+function update(){
+if(!running)return;
+moveParticles();
+collideParticles();
+updatePistonByInertia();
+}
+
+function draw(){
+ctx.clearRect(0,0,W,H);
+
+ctx.fillStyle="#ffffff";
+ctx.fillRect(0,0,W,H);
+
+ctx.fillStyle="rgba(37,99,235,.13)";
+ctx.fillRect(0,0,pistonX-PISTON_W/2,H);
+
+ctx.fillStyle="rgba(220,38,38,.13)";
+ctx.fillRect(pistonX+PISTON_W/2,0,W-pistonX,H);
+
+ctx.fillStyle="#666666";
+ctx.fillRect(pistonX-PISTON_W/2,0,PISTON_W,H);
+
+ctx.fillStyle="#d0d0d0";
+ctx.fillRect(pistonX-PISTON_W/2+4,0,4,H);
+ctx.fillRect(pistonX+PISTON_W/2-8,0,4,H);
+
+ctx.strokeStyle="#333";
+ctx.lineWidth=2;
+ctx.strokeRect(pistonX-PISTON_W/2,0,PISTON_W,H);
+
+ctx.fillStyle="#f8fafc";
+ctx.font="bold 16px Arial";
+ctx.textAlign="center";
+ctx.fillText("",pistonX,H-18);
+
+for(const p of particles){
+ctx.fillStyle=tempToColor(p.temp);
+ctx.beginPath();
+ctx.arc(p.x,p.y,R,0,Math.PI*2);
+ctx.fill();
+
+ctx.fillStyle="rgba(255,255,255,.75)";
+ctx.beginPath();
+ctx.arc(p.x-R*0.3,p.y-R*0.3,R*0.22,0,Math.PI*2);
+ctx.fill();
+}
+
+const left=getLeftParticles();
+const right=getRightParticles();
+const leftT=avgTemp(left);
+const rightT=avgTemp(right);
+
+ui.leftInfo.innerHTML=`왼쪽<br>입자 수: ${left.length}개<br>평균 온도: ${Math.round(leftT)} K<br>부피: ${relativeVolume("left").toFixed(2)} V₀<br>압력: ${relativePressure("left",left.length,leftT).toFixed(2)} P₀`;
+ui.rightInfo.innerHTML=`오른쪽<br>입자 수: ${right.length}개<br>평균 온도: ${Math.round(rightT)} K<br>부피: ${relativeVolume("right").toFixed(2)} V₀<br>압력: ${relativePressure("right",right.length,rightT).toFixed(2)} P₀`;
+
+ui.leftInfo.style.borderColor=tempToColor(leftT);
+ui.rightInfo.style.borderColor=tempToColor(rightT);
+updateInfoBoxVisibility();
+}
+
+function canvasX(e){
+const rect=canvas.getBoundingClientRect();
+const cssX=e.clientX-rect.left;
+return cssX*(W/rect.width);
+}
+
+canvas.addEventListener("pointerdown",e=>{
+const x=canvasX(e);
+if(Math.abs(x-pistonX)<PISTON_W*3){
+draggingPiston=true;
+lastDragX=x;
+canvas.setPointerCapture(e.pointerId);
+}
+});
+
+canvas.addEventListener("pointermove",e=>{
+if(!draggingPiston)return;
+const x=canvasX(e);
+const dx=x-lastDragX;
+lastDragX=x;
+setPistonX(pistonX+dx,true);
+});
+
+canvas.addEventListener("pointerup",e=>{
+draggingPiston=false;
+lastDragX=null;
+try{canvas.releasePointerCapture(e.pointerId)}catch(err){}
+});
+
+canvas.addEventListener("pointercancel",()=>{
+draggingPiston=false;
+lastDragX=null;
+});
+
+function loop(){
+update();
+draw();
+requestAnimationFrame(loop);
+}
+
+function handleLeftTempInput(input){
+const temp=clamp(input.value,TEMP_MIN,TEMP_MAX);
+applySideTemperature("left",temp);
+}
+
+function handleRightTempInput(input){
+const temp=clamp(input.value,TEMP_MIN,TEMP_MAX);
+applySideTemperature("right",temp);
+}
+
+function handleLeftCountInput(input,tempInput){
+adjustParticleCount("left",input.value,clamp(tempInput.value,TEMP_MIN,TEMP_MAX));
+}
+
+function handleRightCountInput(input,tempInput){
+adjustParticleCount("right",input.value,clamp(tempInput.value,TEMP_MIN,TEMP_MAX));
+}
+
+ui.isoTab.addEventListener("click",()=>setMode("iso"));
+ui.adiTab.addEventListener("click",()=>setMode("adi"));
+
+ui.isoStart.addEventListener("click",()=>running=!running);
+ui.adiStart.addEventListener("click",()=>running=!running);
+ui.isoReset.addEventListener("click",resetIso);
+ui.adiReset.addEventListener("click",resetAdi);
+ui.isoRandomize.addEventListener("click",randomizeParticlePositionsOnly);
+ui.adiRandomize.addEventListener("click",randomizeParticlePositionsOnly);
+
+ui.isoLeftTemp.addEventListener("input",()=>handleLeftTempInput(ui.isoLeftTemp));
+ui.isoRightTemp.addEventListener("input",()=>handleRightTempInput(ui.isoRightTemp));
+ui.isoLeftCount.addEventListener("input",()=>handleLeftCountInput(ui.isoLeftCount,ui.isoLeftTemp));
+ui.isoRightCount.addEventListener("input",()=>handleRightCountInput(ui.isoRightCount,ui.isoRightTemp));
+
+ui.adiLeftTemp.addEventListener("input",()=>handleLeftTempInput(ui.adiLeftTemp));
+ui.adiRightTemp.addEventListener("input",()=>handleRightTempInput(ui.adiRightTemp));
+ui.adiLeftCount.addEventListener("input",()=>handleLeftCountInput(ui.adiLeftCount,ui.adiLeftTemp));
+ui.adiRightCount.addEventListener("input",()=>handleRightCountInput(ui.adiRightCount,ui.adiRightTemp));
+
+ui.fullscreenBtn.addEventListener("click",()=>{
+if(!document.fullscreenElement){
+ui.app.requestFullscreen();
+ui.fullscreenBtn.textContent="전체화면 해제";
+}else{
+document.exitFullscreen();
+ui.fullscreenBtn.textContent="전체화면";
+}
+});
+
+document.addEventListener("fullscreenchange",()=>{
+ui.fullscreenBtn.textContent=document.fullscreenElement?"전체화면 해제":"전체화면";
+});
+
+resetIso();
+updateInfoBoxVisibility();
+loop();
+</script>
+</body>
+</html>
